@@ -1,11 +1,11 @@
-# prometheus-tsdb-dump
+# Prometheus TSDB dump
 
 prometheus-tsdb-dump reads a Prometheus TSDB block and writes metrics.
 
 ## Installation
 
 ```
-$ git clone https://github.com/ryotarai/prometheus-tsdb-dump.git
+$ git clone https://github.com/philyuchkoff/prometheus-tsdb-dump
 $ cd prometheus-tsdb-dump
 $ make build
 ```
