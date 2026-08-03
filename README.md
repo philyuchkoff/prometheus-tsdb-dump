@@ -2,6 +2,11 @@
 
 prometheus-tsdb-dump reads a Prometheus TSDB block and writes metrics.
 
+## Requirements
+
+- Go 1.25+ (uses the latest Prometheus TSDB APIs — `log/slog`, `model/labels`)
+- Prometheus `tsdb` blocks (v2/v3 format)
+
 ## Installation
 
 ```
@@ -12,10 +17,26 @@ $ make build
 
 ## Usage
 
+### Dump all series in a block
+
 ```
 $ prometheus-tsdb-dump -block /path/to/prometheus-data/block-ulid -format victoriametrics
 {"metric":{"__name__":"up","job":"node-exporter","instance":"a"},"values":[1,1,1],"timestamps":[1578636058619,1578636118619,1578636178619]}
-{"metric":{"__name__":"up","job":"node-exporter","instance":"b"},"values":[1,1,1],"timestamps":[1578636058619,1578636118619,1578636178619]}
+```
+
+### Filter by label
+
+```
+$ prometheus-tsdb-dump -block /path/to/block-ulid -label-key __name__ -label-value up
+```
+
+### Add external labels and time range
+
+```
+$ prometheus-tsdb-dump -block /path/to/block-ulid \
+  -external-labels '{"cluster":"prod","region":"eu"}' \
+  -min-timestamp 1577836800000 \
+  -max-timestamp 1577923200000
 ```
 
 ## Options
