@@ -7,10 +7,11 @@ import (
 )
 
 type VictoriaMetricsWriter struct {
+	enc *json.Encoder
 }
 
 func NewVictoriaMetricsWriter() (*VictoriaMetricsWriter, error) {
-	return &VictoriaMetricsWriter{}, nil
+	return &VictoriaMetricsWriter{enc: json.NewEncoder(os.Stdout)}, nil
 }
 
 type victoriaMetricsLine struct {
@@ -25,8 +26,7 @@ func (w *VictoriaMetricsWriter) Write(labels *labels.Labels, timestamps []int64,
 		metric[l.Name] = l.Value
 	}
 
-	enc := json.NewEncoder(os.Stdout)
-	err := enc.Encode(victoriaMetricsLine{
+	err := w.enc.Encode(victoriaMetricsLine{
 		Metric:     metric,
 		Values:     values,
 		Timestamps: timestamps,

@@ -20,9 +20,19 @@ $ prometheus-tsdb-dump -block /path/to/prometheus-data/block-ulid -format victor
 
 ## Options
 
-- `-format`: Output format (default: victoriametrics)
+- `-block`: Path to the TSDB block directory (required)
+- `-format`: Output format (default: `victoriametrics`)
+- `-label-key`, `-label-value`: Only dump series having the given label key/value
+- `-external-labels`: Labels to be added to every dumped series, given as a JSON object (default: `{}`)
 - `-min-timestamp`: Minimum timestamp of exported samples (unix time in msec)
 - `-max-timestamp`: Maximum timestamp of exported samples (unix time in msec)
+
+## Behaviour
+
+- Datapoints with `NaN`, `+Inf` and `-Inf` values are skipped.
+- Datapoints outside the `-min-timestamp` / `-max-timestamp` range are skipped.
+- Series with no remaining datapoints are not written.
+- External labels are sorted by label name, so the output is deterministic.
 
 ## Output Formats
 
