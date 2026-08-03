@@ -2,8 +2,9 @@ package writer
 
 import (
 	"encoding/json"
-	"github.com/prometheus/prometheus/pkg/labels"
 	"os"
+
+	"github.com/prometheus/prometheus/model/labels"
 )
 
 type VictoriaMetricsWriter struct {
@@ -20,11 +21,11 @@ type victoriaMetricsLine struct {
 	Timestamps []int64           `json:"timestamps"`
 }
 
-func (w *VictoriaMetricsWriter) Write(labels *labels.Labels, timestamps []int64, values []float64) error {
+func (w *VictoriaMetricsWriter) Write(lset labels.Labels, timestamps []int64, values []float64) error {
 	metric := map[string]string{}
-	for _, l := range *labels {
+	lset.Range(func(l labels.Label) {
 		metric[l.Name] = l.Value
-	}
+	})
 
 	err := w.enc.Encode(victoriaMetricsLine{
 		Metric:     metric,

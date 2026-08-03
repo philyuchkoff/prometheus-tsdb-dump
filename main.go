@@ -1,20 +1,22 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"math"
 	"os"
 	"sort"
 	"strings"
 
-	gokitlog "github.com/go-kit/kit/log"
-	"github.com/prometheus/prometheus/pkg/labels"
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/tsdb"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
+	"github.com/prometheus/prometheus/tsdb/index"
 
 	"github.com/ryotarai/prometheus-tsdb-dump/pkg/writer"
 )
@@ -43,12 +45,12 @@ func run(blockPath string, labelKey string, labelValue string, outFormat string,
 	if err := json.NewDecoder(strings.NewReader(externalLabelsJSON)).Decode(&externalLabelsMap); err != nil {
 		return fmt.Errorf("decode external labels: %w", err)
 	}
-	var externalLabels labels.Labels
+	externalSlice := []labels.Label{}
 	for k, v := range externalLabelsMap {
-		externalLabels = append(externalLabels, labels.Label{Name: k, Value: v})
+		externalSlice = append(externalSlice, labels.Label{Name: k, Value: v})
 	}
-	sort.Slice(externalLabels, func(i, j int) bool {
-		return externalLabels[i].Name < externalLabels[j].Name
+	sort.Slice(externalSlice, func(i, j int) bool {
+		return externalSlice[i].Name < externalSlice[j].Name
 	})
 
 	wr, err := writer.NewWriter(outFormat)
@@ -56,9 +58,9 @@ func run(blockPath string, labelKey string, labelValue string, outFormat string,
 		return fmt.Errorf("new writer: %w", err)
 	}
 
-	logger := gokitlog.NewLogfmtLogger(os.Stderr)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	block, err := tsdb.OpenBlock(logger, blockPath, chunkenc.NewPool())
+	block, err := tsdb.OpenBlock(logger, blockPath, chunkenc.NewPool(), tsdb.DefaultPostingsDecoderFactory)
 	if err != nil {
 		return fmt.Errorf("tsdb.OpenBlock: %w", err)
 	}
@@ -75,34 +77,49 @@ func run(blockPath string, labelKey string, labelValue string, outFormat string,
 	}
 	defer chunkr.Close()
 
-	postings, err := indexr.Postings(labelKey, labelValue)
-	if err != nil {
-		return fmt.Errorf("indexr.Postings: %w", err)
+	ctx := context.Background()
+
+	var postings index.Postings
+	if labelKey == "" {
+		postings, err = allPostings(ctx, indexr)
+		if err != nil {
+			return err
+		}
+	} else {
+		postings, err = indexr.Postings(ctx, labelKey, labelValue)
+		if err != nil {
+			return fmt.Errorf("indexr.Postings: %w", err)
+		}
 	}
 
+	var builder labels.ScratchBuilder
 	var it chunkenc.Iterator
 	for postings.Next() {
-		ref := postings.At()
-		lset := labels.Labels{}
+		builder.Reset()
 		chks := []chunks.Meta{}
-		if err := indexr.Series(ref, &lset, &chks); err != nil {
+		if err := indexr.Series(postings.At(), &builder, &chks); err != nil {
 			return fmt.Errorf("indexr.Series: %w", err)
 		}
-		if len(externalLabels) > 0 {
-			lset = append(lset, externalLabels...)
+		for _, l := range externalSlice {
+			builder.Add(l.Name, l.Value)
 		}
+		lset := builder.Labels()
 
 		for _, meta := range chks {
-			chunk, err := chunkr.Chunk(meta.Ref)
+			chunk, iterable, err := chunkr.ChunkOrIterable(meta)
 			if err != nil {
-				return fmt.Errorf("chunkr.Chunk: %w", err)
+				return fmt.Errorf("chunkr.ChunkOrIterable: %w", err)
 			}
 
 			var timestamps []int64
 			var values []float64
 
-			it = chunk.Iterator(it)
-			for it.Next() {
+			var data chunkenc.Iterable = chunk
+			if iterable != nil {
+				data = iterable
+			}
+			it = data.Iterator(it)
+			for it.Next() != chunkenc.ValNone {
 				t, v := it.At()
 				if math.IsNaN(v) {
 					continue
@@ -124,7 +141,7 @@ func run(blockPath string, labelKey string, labelValue string, outFormat string,
 				continue
 			}
 
-			if err := wr.Write(&lset, timestamps, values); err != nil {
+			if err := wr.Write(lset, timestamps, values); err != nil {
 				return fmt.Errorf("Writer.Write(%v, %v, %v): %w", lset, timestamps, values, err)
 			}
 		}
@@ -135,4 +152,17 @@ func run(blockPath string, labelKey string, labelValue string, outFormat string,
 	}
 
 	return nil
+}
+
+func allPostings(ctx context.Context, indexr tsdb.IndexReader) (index.Postings, error) {
+	names, err := indexr.LabelNames(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("indexr.LabelNames: %w", err)
+	}
+
+	postings := make([]index.Postings, 0, len(names))
+	for _, name := range names {
+		postings = append(postings, indexr.PostingsForAllLabelValues(ctx, name))
+	}
+	return index.Merge(ctx, postings...), nil
 }

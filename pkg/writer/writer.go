@@ -2,11 +2,12 @@ package writer
 
 import (
 	"fmt"
-	"github.com/prometheus/prometheus/pkg/labels"
+
+	"github.com/prometheus/prometheus/model/labels"
 )
 
 type Writer interface {
-	Write(*labels.Labels, []int64, []float64) error
+	Write(labels.Labels, []int64, []float64) error
 }
 
 func NewWriter(format string) (Writer, error) {
